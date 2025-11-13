@@ -120,7 +120,11 @@ export default function DashboardPage() {
 									<p className="text-gray-600 mb-4">
 										Participate in surveys and share your insights
 									</p>
-									<Button variant="outline" className="w-full">
+									<Button 
+										variant="outline" 
+										onClick={() => router.push("/surveys/browse")}
+										className="w-full"
+									>
 										View Available Surveys
 									</Button>
 								</CardContent>
