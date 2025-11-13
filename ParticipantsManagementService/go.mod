@@ -6,7 +6,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	gorm.io/datatypes v1.2.5
 	gorm.io/driver/postgres v1.5.11
-	gorm.io/gorm v1.25.12
+	gorm.io/gorm v1.31.1
 )
 
 require (
@@ -38,5 +38,4 @@ require (
 	golang.org/x/sync v0.12.0 // indirect
 	golang.org/x/sys v0.31.0 // indirect
 	golang.org/x/text v0.23.0 // indirect
-
 )
