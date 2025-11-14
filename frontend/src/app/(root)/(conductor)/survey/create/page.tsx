@@ -18,6 +18,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import type { CheckedState } from "@radix-ui/react-checkbox";
 import { Loader2, Save, X, Upload, FileImage } from "lucide-react";
 import { useEffect, useState, useRef, useCallback } from "react";
+import * as Papa from "papaparse";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { debounce } from 'perfect-debounce';
@@ -28,7 +29,7 @@ interface Question {
     id: string;
     text: string;
     type: "multiple-choice" | "single-choice" | "text" | "rating";
-    options: Option[];
+    options: Array<{ id: string; text: string }>;
     mandatory: boolean;
     correctAnswers?: string;
     mediaFiles?: Array<{
@@ -37,11 +38,6 @@ interface Question {
         type: string;
         status: 'UPLOADING' | 'READY' | 'ERROR';
     }>;
-}
-
-interface Option {
-    id: string;
-    text: string;
 }
 
 interface DraftQuestion {
@@ -131,6 +127,86 @@ type WindowWithIdleCallback = Window & {
 };
 
 export default function SurveyCreatePage() {
+    // Top-level templates object for SmartSurvey-style templates
+const templates: Record<string, any> = {
+  "product-feedback": {
+    type: "survey",
+    title: "Product Feedback Form",
+    description: "Gather information about customers' experiences and opinions of a particular product.",
+    questions: [
+      { id: "1", text: "What is your age?", type: "single-choice", options: [ { id: "a", text: "Under 18" }, { id: "b", text: "18-24" }, { id: "c", text: "25-34" }, { id: "d", text: "35-44" }, { id: "e", text: "45-54" }, { id: "f", text: "55-64" }, { id: "g", text: "65 or older" } ], mandatory: true },
+      { id: "2", text: "What is your gender?", type: "single-choice", options: [ { id: "a", text: "Male" }, { id: "b", text: "Female" }, { id: "c", text: "Non-binary" }, { id: "d", text: "Prefer not to say" } ], mandatory: true },
+      { id: "3", text: "Which of the following best describes your employment status?", type: "single-choice", options: [ { id: "a", text: "Full-time employee" }, { id: "b", text: "Part-time employee" }, { id: "c", text: "Self-employed" }, { id: "d", text: "Student" }, { id: "e", text: "Retired" }, { id: "f", text: "Unemployed" } ], mandatory: true },
+      { id: "4", text: "How often do you use our product?", type: "single-choice", options: [ { id: "a", text: "Daily" }, { id: "b", text: "Weekly" }, { id: "c", text: "Monthly" }, { id: "d", text: "Rarely" }, { id: "e", text: "First time user" } ], mandatory: true },
+      { id: "5", text: "How would you rate the ease of use of our product?", type: "single-choice", options: [ { id: "a", text: "Very easy" }, { id: "b", text: "Somewhat easy" }, { id: "c", text: "Neutral" }, { id: "d", text: "Somewhat difficult" }, { id: "e", text: "Very difficult" } ], mandatory: true },
+      { id: "6", text: "Which of the following features do you find most useful? (select all that apply)", type: "multiple-choice", options: [ { id: "a", text: "Feature 1" }, { id: "b", text: "Feature 2" }, { id: "c", text: "Feature 3" }, { id: "d", text: "Feature 4" }, { id: "e", text: "Feature 5" } ], mandatory: false },
+      { id: "7", text: "Is there a feature you wish our product had?", type: "single-choice", options: [ { id: "a", text: "Yes" }, { id: "b", text: "No" } ], mandatory: false },
+      { id: "8", text: "Have you ever had to contact customer support for our product?", type: "single-choice", options: [ { id: "a", text: "Yes" }, { id: "b", text: "No" } ], mandatory: false },
+      { id: "9", text: "How would you rate the customer support you received?", type: "single-choice", options: [ { id: "a", text: "Excellent" }, { id: "b", text: "Good" }, { id: "c", text: "Fair" }, { id: "d", text: "Poor" }, { id: "e", text: "N/A" } ], mandatory: false },
+      { id: "10", text: "Was your issue resolved in a timely manner?", type: "single-choice", options: [ { id: "a", text: "Yes" }, { id: "b", text: "No" } ], mandatory: false },
+      { id: "11", text: "How satisfied are you with our product?", type: "single-choice", options: [ { id: "a", text: "Very satisfied" }, { id: "b", text: "Somewhat satisfied" }, { id: "c", text: "Neutral" }, { id: "d", text: "Somewhat dissatisfied" }, { id: "e", text: "Very dissatisfied" } ], mandatory: true },
+      { id: "12", text: "Would you recommend our product to others?", type: "single-choice", options: [ { id: "a", text: "Yes" }, { id: "b", text: "No" } ], mandatory: true },
+      { id: "13", text: "How likely are you to continue using our product in the future?", type: "single-choice", options: [ { id: "a", text: "Very likely" }, { id: "b", text: "Somewhat likely" }, { id: "c", text: "Neutral" }, { id: "d", text: "Somewhat unlikely" }, { id: "e", text: "Very unlikely" } ], mandatory: true }
+    ]
+  },
+  "customer-satisfaction": {
+    type: "survey",
+    title: "Customer Satisfaction Survey",
+    description: "Measure customer satisfaction and identify areas for improvement.",
+    questions: [
+      { id: "1", text: "How satisfied are you with our product/service?", type: "rating", options: [], mandatory: true },
+      { id: "2", text: "What did you like most about our product/service?", type: "text", options: [], mandatory: false },
+      { id: "3", text: "What can we improve?", type: "text", options: [], mandatory: false },
+      { id: "4", text: "Would you recommend us to others?", type: "single-choice", options: [ { id: "a", text: "Yes" }, { id: "b", text: "No" } ], mandatory: true }
+    ]
+  },
+  "employee-engagement": {
+    type: "survey",
+    title: "Employee Engagement Survey",
+    description: "Understand employee motivation, satisfaction, and workplace culture.",
+    questions: [
+      { id: "1", text: "How engaged do you feel at work?", type: "rating", options: [], mandatory: true },
+      { id: "2", text: "What motivates you at work?", type: "text", options: [], mandatory: false },
+      { id: "3", text: "Do you feel valued by your manager?", type: "single-choice", options: [ { id: "a", text: "Yes" }, { id: "b", text: "No" } ], mandatory: true },
+      { id: "4", text: "What could improve your engagement?", type: "text", options: [], mandatory: false }
+    ]
+  },
+  "event-feedback": {
+    type: "survey",
+    title: "Event Feedback Survey",
+    description: "Collect feedback from attendees to improve future events.",
+    questions: [
+      { id: "1", text: "How would you rate the event overall?", type: "rating", options: [], mandatory: true },
+      { id: "2", text: "What did you enjoy most about the event?", type: "text", options: [], mandatory: false },
+      { id: "3", text: "What could be improved for next time?", type: "text", options: [], mandatory: false },
+      { id: "4", text: "Would you attend future events?", type: "single-choice", options: [ { id: "a", text: "Yes" }, { id: "b", text: "No" } ], mandatory: true }
+    ]
+  },
+  "market-research": {
+    type: "survey",
+    title: "Market Research Survey",
+    description: "Gather insights about your target market and customer preferences.",
+    questions: [
+      { id: "1", text: "How did you hear about us?", type: "single-choice", options: [ { id: "a", text: "Online" }, { id: "b", text: "Friend" }, { id: "c", text: "Advertisement" }, { id: "d", text: "Other" } ], mandatory: true },
+      { id: "2", text: "What features are most important to you?", type: "multiple-choice", options: [ { id: "a", text: "Price" }, { id: "b", text: "Quality" }, { id: "c", text: "Support" }, { id: "d", text: "Brand" } ], mandatory: false },
+      { id: "3", text: "Any other comments?", type: "text", options: [], mandatory: false }
+    ]
+  },
+  "general-quiz": {
+    type: "quiz",
+    title: "General Knowledge Quiz",
+    description: "Test your knowledge with these quiz questions.",
+    questions: [
+      { id: "1", text: "What is the capital of France?", type: "single-choice", options: [ { id: "a", text: "Paris" }, { id: "b", text: "London" }, { id: "c", text: "Berlin" } ], mandatory: true, correctAnswers: "Paris" },
+      { id: "2", text: "2 + 2 = ?", type: "single-choice", options: [ { id: "a", text: "3" }, { id: "b", text: "4" }, { id: "c", text: "5" } ], mandatory: true, correctAnswers: "4" }
+    ]
+  }
+};
+    // Survey type selection
+    const [selectedType, setSelectedType] = useState<string>("");
+    // CSV import state
+    const [csvPreview, setCsvPreview] = useState<any[]>([]);
+    const [csvError, setCsvError] = useState<string>("");
     const router = useRouter();
     const { user, isAuthenticated, loading } = useAuth();
     
@@ -1342,33 +1418,239 @@ export default function SurveyCreatePage() {
 
     return (
         <div className="container mx-auto p-4 space-y-4">
+            {/* Survey Type Selector only visible in basic info section */}
+            {currentSection === 'basic' && (
+                <div className="mb-4 p-4 border rounded bg-gray-50">
+                    <div className="font-semibold mb-2">Select Survey Type</div>
+                    <Select
+                        value={selectedType}
+                        onValueChange={(value) => {
+                            setSelectedType(value);
+                            // Reset draft type and questions
+                            updateDraft({
+                                basicInfo: {
+                                    ...draft.draftContent.basicInfo,
+                                    status: value === "quiz" ? "QUIZ" : "DRAFT"
+                                },
+                                questions: [],
+                                options: []
+                            });
+                            setQuestions([]);
+                        }}
+                    >
+                        <SelectTrigger className="w-[180px]">
+                            <SelectValue placeholder="Choose type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="survey">Survey</SelectItem>
+                            <SelectItem value="quiz">Quiz</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
+            )}
+            {/* CSV Upload */}
+            
+                {currentSection === 'basic' && (
+                  <>
+                  {/* Template Selector and CSV Upload only visible in basic info section */}
+                  <div className="mb-4 p-4 border rounded bg-gray-50">
+                      <div className="font-semibold mb-2">Select a {selectedType === "quiz" ? "Quiz" : "Survey"} Template or Import CSV</div>
+                      <div className="flex gap-4 items-center">
+                          <Select
+                              defaultValue={""}
+                              onValueChange={(templateKey) => {
+                                  // Top-level templates object for SmartSurvey-style templates
+                                  // Filter templates by type
+                                  const filtered = Object.entries(templates).filter(([key, tpl]) =>
+                                      selectedType === "quiz" ? tpl.type === "quiz" : tpl.type === "survey"
+                                  );
+                                  const selected = filtered.find(([key]) => key === templateKey)?.[1];
+                                  if (selected) {
+                                      updateDraft({
+                                          basicInfo: {
+                                              ...draft.draftContent.basicInfo,
+                                              title: selected.title,
+                                              description: selected.description,
+                                              status: selectedType === "quiz" ? "QUIZ" : "DRAFT"
+                                          },
+                                          questions: selected.questions.map((q: any, idx: number) => ({
+                                              question_id: idx + 1,
+                                              question_text: q.text,
+                                              question_type: q.type,
+                                              mandatory: q.mandatory,
+                                              correct_answers: q.correctAnswers || "",
+                                              branching_logic: "",
+                                              tempId: q.id,
+                                              mediaFiles: [],
+                                          })),
+                                          options: selected.questions.flatMap((q: any, idx: number) =>
+                                              (q.options || []).map((opt: any) => ({
+                                                  optionId: opt.id,
+                                                  question_id: idx + 1,
+                                                  option_text: opt.text
+                                              }))
+                                          )
+                                      });
+                                      setQuestions(selected.questions.map((q: any, idx: number) => ({
+                                          id: (idx + 1).toString(),
+                                          text: q.text,
+                                          type: q.type,
+                                          options: q.options || [],
+                                          mandatory: q.mandatory,
+                                          correctAnswers: q.correctAnswers || "",
+                                          mediaFiles: [],
+                                      })));
+                                  }
+                              }}
+                          >
+                              <SelectTrigger className="w-[180px]">
+                                  <SelectValue placeholder="Choose a template" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                  {Object.entries(templates)
+                                      .filter(([key, tpl]) => selectedType === (tpl as any).type)
+                                      .map(([key, tpl]) => {
+                                          const t = tpl as any;
+                                          return (
+                                              <SelectItem key={key} value={key}>
+                                                  <div>
+                                                      <div className="font-semibold">{t.title}</div>
+                                                      <div className="text-xs text-muted-foreground">{t.description}</div>
+                                                  </div>
+                                              </SelectItem>
+                                          );
+                                      })}
+                              </SelectContent>
+                          </Select>
+                          {/* CSV Upload */}
+                          <div className="flex flex-col gap-1">
+                              <label htmlFor="csv-upload" className="text-sm font-medium">CSV Upload</label>
+                              <input
+                                  id="csv-upload"
+                                  type="file"
+                                  accept=".csv"
+                                  onChange={e => {
+                                      setCsvError("");
+                                      setCsvPreview([]);
+                                      const file = e.target.files?.[0];
+                                      if (!file) return;
+                                      Papa.parse(file, {
+                                          header: true,
+                                          skipEmptyLines: true,
+                                          complete: (results: Papa.ParseResult<any>) => {
+                                              if (results.errors && results.errors.length) {
+                                                  setCsvError("CSV parsing error: " + results.errors[0].message);
+                                              } else {
+                                                  setCsvPreview(results.data as any[]);
+                                              }
+                                          }
+                                      });
+                                  }}
+                              />
+                              {csvError && <div className="text-red-500 text-xs">{csvError}</div>}
+                              {csvPreview.length > 0 && (
+                                  <div className="border rounded p-2 mt-2 bg-gray-50">
+                                      <div className="font-semibold mb-1">CSV Preview</div>
+                                      <table className="text-xs w-full">
+                                          <thead>
+                                              <tr>
+                                                  {Object.keys(csvPreview[0] as Record<string, any>).map((col) => (
+                                                      <th key={col} className="px-2 py-1 border-b">{col}</th>
+                                                  ))}
+                                              </tr>
+                                          </thead>
+                                          <tbody>
+                                              {csvPreview.map((row, idx) => (
+                                                  <tr key={idx}>
+                                                      {Object.values(row as Record<string, any>).map((val, i) => (
+                                                          <td key={i} className="px-2 py-1 border-b">{String(val)}</td>
+                                                      ))}
+                                                  </tr>
+                                              ))}
+                                          </tbody>
+                                      </table>
+                                      <button
+                                          className="mt-2 px-3 py-1 bg-blue-600 text-white rounded"
+                                          onClick={() => {
+                                              // Enhanced CSV import: handle all question types and map options per question
+                                              let newQuestions: any[] = [];
+                                              let newOptions: any[] = [];
+                                              csvPreview.forEach((row, idx) => {
+                                                  if (row.questions) {
+                                                      const questionsArr = row.questions.split(";").map((q: string) => q.trim()).filter(Boolean);
+                                                      // Split options by semicolon to get groups per question
+                                                      const optionsGroups = row.options ? row.options.split(";").map((g: string) => g.trim()) : [];
+                                                      // Split types by semicolon if provided, else fallback to row.question_type
+                                                      const typesArr = row.question_type ? row.question_type.split(";").map((t: string) => t.trim()) : [];
+                                                      // Split mandatory by semicolon if provided
+                                                      const mandatoryArr = row.mandatory ? row.mandatory.split(";").map((m: string) => m.trim()) : [];
+                                                      // Split correct answers by semicolon if provided
+                                                      const correctArr = row.correctAnswers ? row.correctAnswers.split(";").map((c: string) => c.trim()) : [];
+                                                      questionsArr.forEach((qText: string, qIdx: number) => {
+                                                          // Determine type for this question
+                                                          let qType = typesArr[qIdx] || row.type || row.question_type || "single-choice";
+                                                          // Normalize type
+                                                          if (["single", "single-choice", "radio"].includes(qType.toLowerCase())) qType = "single-choice";
+                                                          else if (["multiple", "multiple-choice", "checkbox"].includes(qType.toLowerCase())) qType = "multiple-choice";
+                                                          else if (["text", "input", "open-ended"].includes(qType.toLowerCase())) qType = "text";
+                                                          else if (["rating", "scale"].includes(qType.toLowerCase())) qType = "rating";
+                                                          // Determine mandatory
+                                                          let mandatory = mandatoryArr[qIdx] ? ["true", "yes", "1"].includes(mandatoryArr[qIdx].toLowerCase()) : (row.mandatory === "true" || row.mandatory === true);
+                                                          // Determine correct answer
+                                                          let correct = correctArr[qIdx] || "";
+                                                          const nextQuestionId = newQuestions.length + 1;
+                                                          newQuestions.push({
+                                                              question_id: nextQuestionId,
+                                                              question_text: qText,
+                                                              question_type: qType,
+                                                              mandatory,
+                                                              correct_answers: correct,
+                                                              branching_logic: "",
+                                                              tempId: String(nextQuestionId),
+                                                              mediaFiles: [],
+                                                          });
+                                                          // For each question, get its options group and split by comma
+                                                          if (optionsGroups[qIdx]) {
+                                                              const opts = optionsGroups[qIdx].split(",").map((opt: string) => opt.trim()).filter(Boolean);
+                                                              opts.forEach((opt: string, i: number) => {
+                                                                  newOptions.push({
+                                                                      optionId: String.fromCharCode(97 + i),
+                                                                      question_id: nextQuestionId,
+                                                                      option_text: opt
+                                                                  });
+                                                              });
+                                                          }
+                                                      });
+                                                  }
+                                              });
+                                              updateDraft({
+                                                  ...draft.draftContent,
+                                                  questions: newQuestions,
+                                                  options: newOptions
+                                              });
+                                              setQuestions(newQuestions.map((q) => ({
+                                                  id: q.question_id.toString(),
+                                                  text: q.question_text,
+                                                  type: q.question_type,
+                                                  options: newOptions.filter(opt => opt.question_id === q.question_id).map(opt => ({ id: opt.optionId, text: opt.option_text })),
+                                                  mandatory: q.mandatory,
+                                                  correctAnswers: q.correct_answers || "",
+                                                  mediaFiles: [],
+                                              })));
+                                              setCsvPreview([]);
+                                              toast.success(`Imported CSV. Click Next to view questions.`);
+                                          }}
+                                      >Import to Survey</button>
+                                  </div>
+                              )}
+                          </div>
+                      </div>
+                  </div>
+                  </>
+                )}
+            
             <div className="flex justify-between items-center">
                 <h1 className="text-2xl font-bold">Create Survey</h1>
-                <div className="flex items-center gap-2">
-                    {lastSynced && (
-                        <span className="text-sm text-muted-foreground">
-                            Last synced: {lastSynced.toLocaleTimeString()}
-                        </span>
-                    )}
-                    <Button
-                        variant="outline"
-                        onClick={handleManualSave}
-                        className="flex items-center gap-2"
-                        disabled={isLoading}
-                    >
-                        {isLoading ? (
-                            <>
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                                Saving...
-                            </>
-                        ) : (
-                            <>
-                                <Save className="h-4 w-4" />
-                                Save Draft
-                            </>
-                        )}
-                    </Button>
-                </div>
             </div>
 
             <Progress
@@ -1419,7 +1701,6 @@ export default function SurveyCreatePage() {
                                         <Select 
                                             defaultValue={question.type}
                                             onValueChange={(value: Question['type']) => {
-                                                // Update UI state
                                                 setQuestions(
                                                     questions.map((q) =>
                                                         q.id === question.id
@@ -1427,8 +1708,6 @@ export default function SurveyCreatePage() {
                                                             : q,
                                                     )
                                                 );
-                                                
-                                                // Also update draft state for localStorage
                                                 updateDraft({
                                                     questions: draft.draftContent.questions.map(q => 
                                                         q.question_id === parseInt(question.id)
@@ -1459,8 +1738,6 @@ export default function SurveyCreatePage() {
                                                     checked={question.mandatory}
                                                     onCheckedChange={(checked: CheckedState) => {
                                                         const isChecked = checked === true;
-                                                        
-                                                        // Update UI state
                                                         setQuestions(
                                                             questions.map((q) =>
                                                                 q.id === question.id
@@ -1468,8 +1745,6 @@ export default function SurveyCreatePage() {
                                                                     : q,
                                                             ),
                                                         );
-                                                        
-                                                        // Also update draft state for localStorage
                                                         updateDraft({
                                                             questions: draft.draftContent.questions.map(q => 
                                                                 q.question_id === parseInt(question.id)
@@ -1500,7 +1775,6 @@ export default function SurveyCreatePage() {
                                             placeholder="Enter question text"
                                             className={question.mandatory ? "pr-8" : ""}
                                             onChange={(e) => {
-                                                // Update UI state
                                                 setQuestions(
                                                     questions.map((q) =>
                                                         q.id === question.id
@@ -1508,8 +1782,6 @@ export default function SurveyCreatePage() {
                                                             : q,
                                                     ),
                                                 );
-                                                
-                                                // Also update draft state for localStorage
                                                 updateDraft({
                                                     questions: draft.draftContent.questions.map(q => 
                                                         q.question_id === parseInt(question.id)
@@ -1524,42 +1796,42 @@ export default function SurveyCreatePage() {
                                         )}
                                     </div>
 
-                                    <div className="space-y-2 mt-4">
-                                        <label htmlFor={`correct-answers-${question.id}`} className="text-sm font-medium flex items-center gap-2">
-                                            Correct Answer(s)
-                                            <span className="text-xs text-muted-foreground">
-                                                {question.type === "multiple-choice" 
-                                                    ? "(Comma-separated option numbers, e.g. 1,3,4)" 
-                                                    : question.type === "single-choice" 
-                                                    ? "(Enter the correct option number, e.g. 2)" 
-                                                    : "(Enter the correct answer text)"}
-                                            </span>
-                                        </label>
-                                        <Input
-                                            id={`correct-answers-${question.id}`}
-                                            value={question.correctAnswers || ""}
-                                            placeholder="Enter correct answer(s)"
-                                            onChange={(e) => {
-                                                // Update UI state
-                                                setQuestions(
-                                                    questions.map((q) =>
-                                                        q.id === question.id
-                                                            ? { ...q, correctAnswers: e.target.value }
-                                                            : q
-                                                    )
-                                                );
-                                                
-                                                // Also update draft state for localStorage
-                                                updateDraft({
-                                                    questions: draft.draftContent.questions.map(q => 
-                                                        q.question_id === parseInt(question.id)
-                                                            ? { ...q, correct_answers: e.target.value }
-                                                            : q
-                                                    )
-                                                });
-                                            }}
-                                        />
-                                    </div>
+                                    {/* Only show correct answers for quiz type */}
+                                    {draft.draftContent.basicInfo.status === "QUIZ" && (
+                                        <div className="space-y-2 mt-4">
+                                            <label htmlFor={`correct-answers-${question.id}`} className="text-sm font-medium flex items-center gap-2">
+                                                Correct Answer(s)
+                                                <span className="text-xs text-muted-foreground">
+                                                    {question.type === "multiple-choice" 
+                                                        ? "(Comma-separated option numbers, e.g. 1,3,4)" 
+                                                        : question.type === "single-choice" 
+                                                        ? "(Enter the correct option number, e.g. 2)" 
+                                                        : "(Enter the correct answer text)"}
+                                                </span>
+                                            </label>
+                                            <Input
+                                                id={`correct-answers-${question.id}`}
+                                                value={question.correctAnswers || ""}
+                                                placeholder="Enter correct answer(s)"
+                                                onChange={(e) => {
+                                                    setQuestions(
+                                                        questions.map((q) =>
+                                                            q.id === question.id
+                                                                ? { ...q, correctAnswers: e.target.value }
+                                                                : q
+                                                        )
+                                                    );
+                                                    updateDraft({
+                                                        questions: draft.draftContent.questions.map(q => 
+                                                            q.question_id === parseInt(question.id)
+                                                                ? { ...q, correct_answers: e.target.value }
+                                                                : q
+                                                        )
+                                                    });
+                                                }}
+                                            />
+                                        </div>
+                                    )}
 
                                     {/* Media upload and display section */}
                                     <div className="mt-4 space-y-2">
