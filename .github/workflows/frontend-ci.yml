@@ -64,7 +64,7 @@ jobs:
           fi
 
       - name: Upload test coverage
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v5
         with:
           files: ./frontend/coverage/lcov.info
           flags: frontend
